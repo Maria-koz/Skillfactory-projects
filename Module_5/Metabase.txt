@@ -1,0 +1,62 @@
+WITH table_1 AS (
+-- Информация о количестве проданных билетов (в том числе по классам) и общей стоимости
+SELECT
+    f.flight_id,
+    count(tf.ticket_no) AS sold_tickets,
+    sum(tf.amount) AS earned,
+    count(CASE WHEN tf.fare_conditions = 'Economy' THEN tf.fare_conditions END) AS sold_tickets_economy,
+    count(CASE WHEN tf.fare_conditions = 'Business' THEN tf.fare_conditions END) AS sold_tickets_business
+FROM
+    dst_project.flights AS f
+    JOIN
+        dst_project.ticket_flights AS tf ON f.flight_id = tf.flight_id
+GROUP BY 1
+),
+    
+    table_2 AS (
+-- Информация о количестве мест в схеме салона каждого рейса (в том числе по классам)
+SELECT 
+    f.flight_id, 
+    count(DISTINCT s.seat_no) AS aircraft_seat_number,
+    count(CASE WHEN s.fare_conditions = 'Economy' THEN s.fare_conditions END) AS aircraft_seat_number_economy,
+    count(CASE WHEN s.fare_conditions = 'Business' THEN s.fare_conditions END) AS aircraft_seat_number_business
+FROM 
+    dst_project.flights f
+    JOIN 
+        dst_project.seats s ON f.aircraft_code = s.aircraft_code
+GROUP BY 1
+),
+
+table_3 AS (
+-- Информация о длительности рейсов в минутах
+SELECT
+    f.flight_id,
+extract(epoch from(f.actual_arrival - f.actual_departure))/60 AS flight_time_in_minutes
+FROM 
+    dst_project.flights f
+)
+
+SELECT
+    f.flight_id,
+    table_1.sold_tickets,
+    table_1.earned,
+    table_2.aircraft_seat_number,
+    table_1.sold_tickets / table_2.aircraft_seat_number :: real * 100 AS percent_occupance,
+    table_1.sold_tickets_economy / NULLIF((table_2.aircraft_seat_number_economy),0) :: real * 100 AS percent_occupance_economy,
+    table_1.sold_tickets_business / NULLIF((table_2.aircraft_seat_number_business),0) :: real * 100 AS percent_occupance_business,
+    a.city,
+    table_3.flight_time_in_minutes
+    
+FROM
+    dst_project.flights f
+    LEFT JOIN dst_project.airports a ON a.airport_code = f.arrival_airport
+    LEFT JOIN table_1 ON f.flight_id = table_1.flight_id
+    LEFT JOIN table_2 ON f.flight_id = table_2.flight_id
+    LEFT JOIN table_3 ON f.flight_id = table_3.flight_id
+
+WHERE departure_airport = 'AAQ'
+  AND (date_trunc('month', scheduled_departure) in ('2017-01-01','2017-02-01', '2017-12-01'))
+  AND status not in ('Cancelled')
+  
+ORDER BY
+   earned asc,  percent_occupance asc
